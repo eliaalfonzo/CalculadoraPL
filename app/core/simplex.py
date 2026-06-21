@@ -7,6 +7,7 @@ class SimplexSolver:
         self.model = model
         self.tableaux = []
         self.steps = []
+        self.status = "UNKNOWN"
 
     # ---------------------------
     # TABLA INICIAL
@@ -51,8 +52,9 @@ class SimplexSolver:
 
         pivot_col = min(range(len(z_row) - 1), key=lambda j: z_row[j])
 
+        # óptimo
         if z_row[pivot_col] >= 0:
-            return None, None
+            return None, None, "OPTIMO"
 
         ratios = []
 
@@ -60,12 +62,25 @@ class SimplexSolver:
             if tableau[i][pivot_col] > 0:
                 ratios.append((tableau[i][-1] / tableau[i][pivot_col], i))
 
+        # no acotado
         if not ratios:
-            raise Exception("Problema no acotado")
+            return None, None, "NO_ACOTADO"
 
-        _, pivot_row = min(ratios)
+        min_ratio = min(ratios)[0]
+        pivot_row = min(ratios)[1]
 
-        return pivot_row, pivot_col
+        # ---------------------------
+        # DETECCIÓN DE DEGENERACIÓN REAL
+        # ---------------------------
+        min_count = sum(1 for r, _ in ratios if r == min_ratio)
+
+        if min_count > 1:
+            self.steps.append({
+                "message": "⚠️ Degeneración detectada (empate en razón mínima)",
+                "tableau": deepcopy(tableau)
+            })
+
+        return pivot_row, pivot_col, "OK"
 
     # ---------------------------
     # OPERACIÓN PIVOTE
@@ -84,6 +99,28 @@ class SimplexSolver:
                 ]
 
     # ---------------------------
+    # CLASIFICACIÓN DE SOLUCIÓN
+    # ---------------------------
+    def classify_solution(self, tableau):
+
+        z_row = tableau[-1]
+
+        # ---------------- ÓPTIMA MÚLTIPLE ----------------
+        for j in range(len(z_row) - 1):
+            if z_row[j] == 0:
+                column = [tableau[i][j] for i in range(len(tableau) - 1)]
+
+                if column.count(Fraction(1)) == 1 and column.count(Fraction(0)) == len(column) - 1:
+                    return "OPTIMA_MULTIPLE"
+
+        # ---------------- DEGENERADA ----------------
+        for row in tableau[:-1]:
+            if row[-1] == 0:
+                return "DEGENERADA"
+
+        return "OPTIMA_UNICA"
+
+    # ---------------------------
     # SOLVER
     # ---------------------------
     def solve(self):
@@ -93,18 +130,38 @@ class SimplexSolver:
         iteration = 0
 
         while True:
-            pivot_row, pivot_col = self.get_pivot(tableau)
+            pivot_row, pivot_col, status_flag = self.get_pivot(tableau)
 
-            if pivot_row is None:
+            # ---------------- NO ACOTADO ----------------
+            if status_flag == "NO_ACOTADO":
+                self.status = "NO_ACOTADA"
+
                 self.steps.append({
-                    "message": "Óptimo alcanzado",
-                    "tableau": deepcopy(tableau)
+                    "message": "❌ Problema no acotado",
+                    "tableau": deepcopy(tableau),
+                    "pivot_row": pivot_row,
+                    "pivot_col": pivot_col
                 })
                 break
 
+            # ---------------- ÓPTIMO ----------------
+            if status_flag == "OPTIMO":
+                self.status = self.classify_solution(tableau)
+
+                self.steps.append({
+                    "message": f"✔ Óptimo alcanzado ({self.status})",
+                    "tableau": deepcopy(tableau),
+                    "pivot_row": None,
+                    "pivot_col": None
+                })
+                break
+
+            # ---------------- ITERACIÓN ----------------
             self.steps.append({
-                "message": f"Iteración {iteration} - pivote ({pivot_row},{pivot_col})",
-                "tableau": deepcopy(tableau)
+                "message": f"Iteración {iteration}",
+                "tableau": deepcopy(tableau),
+                "pivot_row": pivot_row,
+                "pivot_col": pivot_col
             })
 
             self.pivot(tableau, pivot_row, pivot_col)
@@ -116,7 +173,8 @@ class SimplexSolver:
         return {
             "tableaux": self.tableaux,
             "steps": self.steps,
-            "solution": self.extract_solution(tableau)
+            "solution": self.extract_solution(tableau),
+            "status": self.status
         }
 
     # ---------------------------

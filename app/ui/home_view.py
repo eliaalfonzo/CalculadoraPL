@@ -1,58 +1,64 @@
 import customtkinter as ctk
 from app.ui.builder_view import BuilderView
-
+from assets.styles import COLORS, FONTS, PADDING
 
 class HomeView(ctk.CTkFrame):
     def __init__(self, master):
         super().__init__(master)
-
         self.master = master
-        self.configure(fg_color="#0f172a")
+        self.configure(fg_color=COLORS["bg"])
 
-        # ---------------- TITULO ----------------
+        # Contenedor central (Card) para agrupar el contenido
+        self.menu_card = ctk.CTkFrame(self, fg_color=COLORS["card"], corner_radius=12)
+        self.menu_card.pack(expand=True, padx=PADDING["xl"], pady=PADDING["xl"])
+
+        # ==========================
+        # TITULO Y SUBTITULO
+        # ==========================
         title = ctk.CTkLabel(
-            self,
+            self.menu_card,
             text="Calculadora de Programación Lineal",
-            font=("Arial", 24, "bold"),
-            text_color="white"
+            font=FONTS["title"],
+            text_color=COLORS["text"]
         )
-        title.pack(pady=40)
+        title.pack(pady=(PADDING["xl"], PADDING["sm"]), padx=PADDING["xl"])
 
         subtitle = ctk.CTkLabel(
-            self,
-            text="Selecciona el método que deseas usar",
-            font=("Arial", 16),
-            text_color="#94a3b8"
+            self.menu_card,
+            text="Selecciona el método matemático que deseas ejecutar",
+            font=FONTS["subtitle"],
+            text_color=COLORS["muted"]
         )
-        subtitle.pack(pady=10)
+        subtitle.pack(pady=(0, PADDING["xl"]), padx=PADDING["xl"])
 
-        # ---------------- BOTONES ----------------
-        btn1 = ctk.CTkButton(
-            self,
-            text="Método Gráfico",
-            width=250,
-            command=self.open_builder
-        )
-        btn1.pack(pady=10)
+        # ==========================
+        # BOTONES DE SELECCIÓN
+        # ==========================
+        methods = [
+            ("Método Gráfico", "graphical"),
+            ("Método Simplex", "simplex"),
+            ("Método Dos Fases", "two_phase")
+        ]
 
-        btn2 = ctk.CTkButton(
-            self,
-            text="Método Simplex",
-            width=250,
-            command=self.open_builder
-        )
-        btn2.pack(pady=10)
+        for text, method_key in methods:
+            btn = ctk.CTkButton(
+                self.menu_card,
+                text=text,
+                width=280,
+                height=45,
+                font=FONTS["body_bold"],
+                fg_color=COLORS["secondary"],
+                hover_color=COLORS["secondary_hover"],
+                text_color=COLORS["bg"],  # Contraste oscuro en botón claro
+                corner_radius=8,
+                command=lambda m=method_key: self.open_builder(m)
+            )
+            btn.pack(pady=PADDING["sm"])
+            
+        # Espacio estético inferior
+        ctk.CTkLabel(self.menu_card, text="", height=10).pack()
 
-        btn3 = ctk.CTkButton(
-            self,
-            text="Método Dos Fases",
-            width=250,
-            command=self.open_builder
-        )
-        btn3.pack(pady=10)
-
-    # ---------------- CAMBIO DE PANTALLA ----------------
-    def open_builder(self):
+    def open_builder(self, method):
         self.pack_forget()
-        builder = BuilderView(self.master)
+        builder = BuilderView(self.master, method)
         builder.pack(fill="both", expand=True)

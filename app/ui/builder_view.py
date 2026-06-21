@@ -1,143 +1,222 @@
 import customtkinter as ctk
-
 from app.components.constraint_row import ConstraintRow
 from app.core.model import LinearProgram, ObjectiveFunction, Constraint
 from app.core.simplex import SimplexSolver
 from app.utils.validators import clean_inputs
 from app.ui.results_view import ResultsView
-
+from assets.styles import COLORS, FONTS, PADDING
 
 class BuilderView(ctk.CTkFrame):
-    def __init__(self, master):
+    def __init__(self, master, method):
         super().__init__(master)
-
-        self.configure(fg_color="#0f172a")
+        self.master = master
+        self.method = method
+        self.configure(fg_color=COLORS["bg"])
 
         self.constraints = []
         self.variables = 0
 
-        # ---------------- TITULO ----------------
+        # ==========================
+        # HEADER DE LA PANTALLA
+        # ==========================
+        header_frame = ctk.CTkFrame(self, fg_color="transparent")
+        header_frame.pack(pady=(PADDING["lg"], PADDING["md"]), fill="x")
+
         ctk.CTkLabel(
-            self,
+            header_frame,
             text="Construcción del Modelo",
-            font=("Arial", 22, "bold"),
-            text_color="white"
-        ).pack(pady=15)
+            font=FONTS["title"],
+            text_color=COLORS["text"]
+        ).pack()
 
-        # ---------------- INPUT VARIABLES ----------------
-        self.var_entry = ctk.CTkEntry(
-            self,
-            placeholder_text="Número de variables (ej: 2, 3)"
+        method_names = {
+            "simplex": "Método Simplex",
+            "graphical": "Método Gráfico",
+            "two_phase": "Método Dos Fases"
+        }
+
+        ctk.CTkLabel(
+            header_frame,
+            text=f"Configuración activa: {method_names.get(method, method)}",
+            text_color=COLORS["secondary"],
+            font=FONTS["subtitle"]
+        ).pack(pady=(5, 0))
+
+        # ==========================
+        # PANEL CONFIGURACIÓN INICIAL (Card)
+        # ==========================
+        self.config_card = ctk.CTkFrame(self, fg_color=COLORS["card"], corner_radius=12)
+        self.config_card.pack(pady=PADDING["md"], padx=PADDING["xl"], fill="x")
+
+        # Columnas simuladas mediante empaquetamiento interno horizontal
+        controls_inner = ctk.CTkFrame(self.config_card, fg_color="transparent")
+        controls_inner.pack(pady=PADDING["md"], padx=PADDING["md"])
+
+        # Optimizacion Dropdown
+        opt_label = ctk.CTkLabel(controls_inner, text="Optimizar:", font=FONTS["body_bold"], text_color=COLORS["text"])
+        opt_label.pack(side="left", padx=PADDING["sm"])
+        
+        self.optimization_type = ctk.CTkOptionMenu(
+            controls_inner,
+            values=["max", "min"],
+            font=FONTS["body"],
+            width=90,
+            fg_color=COLORS["border"],
+            button_color=COLORS["border"],
+            button_hover_color=COLORS["muted"],
+            dropdown_fg_color=COLORS["card"],
+            dropdown_text_color=COLORS["text"]
         )
-        self.var_entry.pack(pady=10)
+        self.optimization_type.set("max")
+        self.optimization_type.pack(side="left", padx=PADDING["md"])
 
-        # ---------------- BOTÓN GENERAR ----------------
-        ctk.CTkButton(
-            self,
-            text="Generar estructura",
+        # Variables Input
+        var_label = ctk.CTkLabel(controls_inner, text="Variables:", font=FONTS["body_bold"], text_color=COLORS["text"])
+        var_label.pack(side="left", padx=PADDING["sm"])
+
+        self.var_entry = ctk.CTkEntry(
+            controls_inner,
+            placeholder_text="Ej: 2 o 3",
+            width=100,
+            font=FONTS["body"],
+            fg_color=COLORS["bg"],
+            border_color=COLORS["border"]
+        )
+        self.var_entry.pack(side="left", padx=PADDING["sm"])
+
+        # Botón Generar Estructura
+        gen_btn = ctk.CTkButton(
+            controls_inner,
+            text="Inicializar Matriz",
+            font=FONTS["body_bold"],
+            fg_color=COLORS["secondary"],
+            hover_color=COLORS["secondary_hover"],
+            text_color=COLORS["bg"],
             command=self.generate_structure
-        ).pack(pady=10)
+        )
+        gen_btn.pack(side="left", padx=PADDING["md"])
 
-        # ---------------- CONTENEDOR DINÁMICO ----------------
-        self.container = ctk.CTkFrame(self)
-        self.container.pack(pady=10, fill="both", expand=True)
+        # ==========================
+        # CONTENEDOR DINÁMICO (Scrollable)
+        # ==========================
+        # Lo ideal es que sea un scrollable frame para que no rompa la UI con muchas restricciones
+        self.container = ctk.CTkScrollableFrame(self, fg_color=COLORS["bg"], label_text="Estructura del Modelo Matemático", label_font=FONTS["section"], label_text_color=COLORS["muted"])
+        self.container.pack(pady=PADDING["md"], padx=PADDING["xl"], fill="both", expand=True)
 
-        # ---------------- BOTONES ----------------
+        # Panel de Acciones Inferiores (Inicialmente oculto/vacio)
+        self.actions_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.actions_frame.pack(pady=PADDING["lg"])
+
         self.add_btn = ctk.CTkButton(
-            self,
+            self.actions_frame,
             text="+ Agregar restricción",
+            font=FONTS["body_bold"],
+            fg_color=COLORS["card"],
+            border_color=COLORS["border"],
+            border_width=1,
+            text_color=COLORS["text"],
             command=self.add_constraint
         )
 
         self.solve_btn = ctk.CTkButton(
-            self,
-            text="Resolver",
+            self.actions_frame,
+            text="Resolver Modelo →",
+            font=FONTS["body_bold"],
+            fg_color=COLORS["primary"],
+            hover_color=COLORS["primary_hover"],
+            text_color=COLORS["bg"],
             command=self.solve
         )
 
-    # ======================================================
-    # GENERAR ESTRUCTURA
-    # ======================================================
     def generate_structure(self):
-
         if not self.var_entry.get().isdigit():
             print("❌ Ingresa un número válido de variables")
             return
 
         self.variables = int(self.var_entry.get())
 
-        # limpiar interfaz
         for widget in self.container.winfo_children():
             widget.destroy()
 
         self.constraints.clear()
 
-        # ---------------- FUNCION OBJETIVO ----------------
+        # ==========================
+        # DISEÑO DINÁMICO DE FUNCIÓN OBJETIVO
+        # ==========================
+        obj_card = ctk.CTkFrame(self.container, fg_color=COLORS["card"], corner_radius=8)
+        obj_card.pack(pady=PADDING["sm"], fill="x", padx=PADDING["sm"])
+
+        ctk.CTkLabel(
+            obj_card,
+            text="Función Objetivo Max/Min Z:",
+            font=FONTS["body_bold"],
+            text_color=COLORS["secondary"]
+        ).pack(anchor="w", padx=PADDING["md"], pady=(PADDING["sm"], 0))
+
+        obj_frame = ctk.CTkFrame(obj_card, fg_color="transparent")
+        obj_frame.pack(pady=PADDING["md"], padx=PADDING["md"])
+
+        ctk.CTkLabel(
+            obj_frame,
+            text="Z =",
+            font=FONTS["section"],
+            text_color=COLORS["text"]
+        ).pack(side="left", padx=PADDING["xs"])
+
         self.obj_entries = []
 
-        obj_frame = ctk.CTkFrame(self.container)
-        obj_frame.pack(pady=10)
-
-        ctk.CTkLabel(obj_frame, text="Z =").pack(side="left")
-
         for i in range(self.variables):
-            entry_frame = ctk.CTkFrame(obj_frame)
-            entry_frame.pack(side="left")
+            entry_frame = ctk.CTkFrame(obj_frame, fg_color="transparent")
+            entry_frame.pack(side="left", padx=PADDING["xs"])
 
-            e = ctk.CTkEntry(entry_frame, width=60)
-            e.pack(side="left")
-            self.obj_entries.append(e)
+            entry = ctk.CTkEntry(
+                entry_frame,
+                width=65,
+                font=FONTS["body"],
+                fg_color=COLORS["bg"],
+                border_color=COLORS["border"],
+                justify="center"
+            )
+            entry.pack(side="left")
+            self.obj_entries.append(entry)
 
             ctk.CTkLabel(
                 entry_frame,
                 text=f"x{i+1}",
-                text_color="white"
-            ).pack(side="left")
+                font=FONTS["body_bold"],
+                text_color=COLORS["muted"]
+            ).pack(side="left", padx=2)
 
             if i < self.variables - 1:
-                ctk.CTkLabel(obj_frame, text="+", text_color="white").pack(side="left")
+                ctk.CTkLabel(
+                    obj_frame,
+                    text="+",
+                    font=FONTS["body_bold"],
+                    text_color=COLORS["muted"]
+                ).pack(side="left", padx=PADDING["xs"])
 
-        # ---------------- BOTONES ----------------
-        self.add_btn.pack(pady=10)
-        self.solve_btn.pack(pady=10)
+        # Desplegar los botones de flujo abajo
+        self.add_btn.pack(side="left", padx=PADDING["sm"])
+        self.solve_btn.pack(side="left", padx=PADDING["sm"])
 
-    # ======================================================
-    # AGREGAR RESTRICCIÓN
-    # ======================================================
     def add_constraint(self):
-
         if self.variables == 0:
-            print("❌ Primero define las variables")
             return
-
         row = ConstraintRow(self.container, self.variables)
-        row.pack(pady=5)
-
+        row.pack(pady=PADDING["xs"], fill="x", padx=PADDING["sm"])
         self.constraints.append(row)
 
-    # ======================================================
-    # RESOLVER (SIMPLEX + RESULTS VIEW)
-    # ======================================================
     def solve(self):
-
-        if not hasattr(self, "obj_entries"):
-            print("❌ Genera primero la estructura")
+        if not hasattr(self, "obj_entries") or len(self.constraints) == 0:
             return
-
-        if len(self.constraints) == 0:
-            print("❌ Debes agregar al menos una restricción")
-            return
-
         try:
-            # ---------------- MODELO ----------------
             objective = clean_inputs([e.get() for e in self.obj_entries])
-
             constraints_data = [c.get_data() for c in self.constraints]
 
             model = LinearProgram(
                 objective=ObjectiveFunction(
                     coefficients=objective,
-                    mode="max"
+                    mode=self.optimization_type.get()
                 ),
                 constraints=[
                     Constraint(
@@ -150,13 +229,13 @@ class BuilderView(ctk.CTkFrame):
                 variables=self.variables
             )
 
-            # ---------------- SIMPLEX ----------------
-            solver = SimplexSolver(model)
-            result = solver.solve()
+            if self.method == "simplex":
+                solver = SimplexSolver(model)
+                result = solver.solve()
+            else:
+                result = {"steps": [], "solution": {"variables": [], "z": f"Método {self.method} en desarrollo"}}
 
-            # ---------------- CAMBIO A RESULTS VIEW ----------------
             self.pack_forget()
-
             results_view = ResultsView(self.master, result)
             results_view.pack(fill="both", expand=True)
 
