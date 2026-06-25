@@ -1,9 +1,13 @@
 import customtkinter as ctk
+from tkinter import messagebox  # Para lanzar alertas visuales limpias sin romper la app
+
 from app.components.constraint_row import ConstraintRow
 from app.core.model import LinearProgram, ObjectiveFunction, Constraint
 from app.core.simplex import SimplexSolver
+from app.core.graphical import GraphicalSolver
 from app.utils.validators import clean_inputs
 from app.ui.results_view import ResultsView
+
 from assets.styles import COLORS, FONTS, PADDING
 
 class BuilderView(ctk.CTkFrame):
@@ -48,7 +52,6 @@ class BuilderView(ctk.CTkFrame):
         self.config_card = ctk.CTkFrame(self, fg_color=COLORS["card"], corner_radius=12)
         self.config_card.pack(pady=PADDING["md"], padx=PADDING["xl"], fill="x")
 
-        # Columnas simuladas mediante empaquetamiento interno horizontal
         controls_inner = ctk.CTkFrame(self.config_card, fg_color="transparent")
         controls_inner.pack(pady=PADDING["md"], padx=PADDING["md"])
 
@@ -99,11 +102,10 @@ class BuilderView(ctk.CTkFrame):
         # ==========================
         # CONTENEDOR DINÁMICO (Scrollable)
         # ==========================
-        # Lo ideal es que sea un scrollable frame para que no rompa la UI con muchas restricciones
         self.container = ctk.CTkScrollableFrame(self, fg_color=COLORS["bg"], label_text="Estructura del Modelo Matemático", label_font=FONTS["section"], label_text_color=COLORS["muted"])
         self.container.pack(pady=PADDING["md"], padx=PADDING["xl"], fill="both", expand=True)
 
-        # Panel de Acciones Inferiores (Inicialmente oculto/vacio)
+        # Panel de Acciones Inferiores
         self.actions_frame = ctk.CTkFrame(self, fg_color="transparent")
         self.actions_frame.pack(pady=PADDING["lg"])
 
@@ -130,7 +132,7 @@ class BuilderView(ctk.CTkFrame):
 
     def generate_structure(self):
         if not self.var_entry.get().isdigit():
-            print("❌ Ingresa un número válido de variables")
+            messagebox.showwarning("Atención", "Por favor, ingresa un número entero válido de variables.")
             return
 
         self.variables = int(self.var_entry.get())
@@ -195,7 +197,6 @@ class BuilderView(ctk.CTkFrame):
                     text_color=COLORS["muted"]
                 ).pack(side="left", padx=PADDING["xs"])
 
-        # Desplegar los botones de flujo abajo
         self.add_btn.pack(side="left", padx=PADDING["sm"])
         self.solve_btn.pack(side="left", padx=PADDING["sm"])
 
@@ -207,37 +208,76 @@ class BuilderView(ctk.CTkFrame):
         self.constraints.append(row)
 
     def solve(self):
-        if not hasattr(self, "obj_entries") or len(self.constraints) == 0:
+        if not hasattr(self, "obj_entries"):
+            messagebox.showwarning("Atención", "Genera primero la estructura inicializando la matriz.")
             return
+
+        if len(self.constraints) == 0:
+            messagebox.showwarning("Atención", "Debes agregar al menos una restricción al modelo.")
+            return
+
         try:
+            # Captura y limpieza de entradas
             objective = clean_inputs([e.get() for e in self.obj_entries])
             constraints_data = [c.get_data() for c in self.constraints]
+
+            # Construcción segura de las restricciones del modelo
+            parsed_constraints = []
+            for idx, c in enumerate(constraints_data):
+                # Validación manual preventiva por si se quedó un string/vacío en el RHS
+                try:
+                    rhs_val = float(c["rhs"])
+                except ValueError:
+                    raise ValueError(f"El valor del lado derecho (RHS) en la restricción {idx+1} debe ser un número numérico válido.")
+
+                parsed_constraints.append(
+                    Constraint(
+                        coefficients=clean_inputs(c["coefficients"]),
+                        sign=c["sign"],
+                        value=rhs_val
+                    )
+                )
 
             model = LinearProgram(
                 objective=ObjectiveFunction(
                     coefficients=objective,
                     mode=self.optimization_type.get()
                 ),
-                constraints=[
-                    Constraint(
-                        coefficients=clean_inputs(c["coefficients"]),
-                        sign=c["sign"],
-                        value=float(c["rhs"])
-                    )
-                    for c in constraints_data
-                ],
+                constraints=parsed_constraints,
                 variables=self.variables
-            )
+              )
 
+            # ======================================
+            # SELECCIÓN DEL MÉTODO
+            # ======================================
             if self.method == "simplex":
                 solver = SimplexSolver(model)
                 result = solver.solve()
+            elif self.method == "graphical":
+                solver = GraphicalSolver(model)
+                result = solver.solve()
+            elif self.method == "two_phase":
+                result = {
+                    "steps": [],
+                    "status": "EN_DESARROLLO",
+                    "solution": {
+                        "variables": [],
+                        "z": "Método Dos Fases en desarrollo"
+                    }
+                }
             else:
-                result = {"steps": [], "solution": {"variables": [], "z": f"Método {self.method} en desarrollo"}}
+                raise Exception("Método no reconocido")
 
+            # ======================================
+            # CAMBIO A RESULTS VIEW
+            # ======================================
             self.pack_forget()
             results_view = ResultsView(self.master, result)
             results_view.pack(fill="both", expand=True)
 
+        except ValueError as ve:
+            # Captura controlada de errores de formato o campos vacíos ('x', '', etc.)
+            messagebox.showerror("Error en los datos", f"Entrada inválida:\n{str(ve)}\n\nAsegúrate de no usar letras o dejar celdas vacías.")
         except Exception as e:
-            print("❌ Error al resolver:", e)
+            # Captura de cualquier fallo algorítmico inesperado del solver
+            messagebox.showerror("Error al resolver", f"Ocurrió un problema inesperado:\n{str(e)}")
