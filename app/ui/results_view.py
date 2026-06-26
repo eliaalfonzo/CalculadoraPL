@@ -25,10 +25,12 @@ class ResultsView(ctk.CTkFrame):
             self.build_graphical_view()
             return
 
-        # ---------------- TITULO (SIMPLEX) ----------------
+        # ---------------- TÍTULO DINÁMICO (SIMPLEX O DOS FASES) ----------------
+        title_text = "Iteraciones Método de las Dos Fases" if method == "two_phase" or "steps" in result and len(result["steps"]) > 0 and "headers" in result["steps"][0] else "Iteraciones Método Simplex"
+        
         ctk.CTkLabel(
             self,
-            text="Iteraciones Método Simplex",
+            text=title_text,
             font=FONTS["title"],
             text_color=COLORS["text"]
         ).pack(pady=(PADDING["lg"], PADDING["sm"]))
@@ -56,9 +58,20 @@ class ResultsView(ctk.CTkFrame):
         )
 
         # =========================================================
-        # ITERACIONES SIMPLEX
+        # DICCIONARIO DE TRADUCCIÓN DE VARIABLES SOLICITADO
         # =========================================================
-        for step in result.get("steps", []):
+        var_translation = {
+            "a1": "s1",
+            "e1": "s2",
+            "a2": "r1",
+            "s2": "r2",
+            "rhs": "Sol"
+        }
+
+        # =========================================================
+        # ITERACIONES SIMPLEX / DOS FASES
+        # =========================================================
+        for step_idx, step in enumerate(result.get("steps", [])):
             frame = ctk.CTkFrame(
                 scroll,
                 fg_color=COLORS["card"],
@@ -71,7 +84,7 @@ class ResultsView(ctk.CTkFrame):
             )
 
             # ---------------- HEADER ----------------
-            msg = step.get("message", "")
+            msg = step.get("description", step.get("message", f"Iteración {step_idx + 1}"))
             pivot_row = step.get("pivot_row")
             pivot_col = step.get("pivot_col")
 
@@ -85,7 +98,10 @@ class ResultsView(ctk.CTkFrame):
                 text_color=COLORS["secondary"]
             ).pack(anchor="w", padx=PADDING["md"], pady=PADDING["sm"])
 
-            tableau = step.get("tableau")
+            # Detectamos si la matriz viene de metodosfases ("matrix") o de simplex ("tableau")
+            is_two_phase = "matrix" in step
+            tableau = step.get("matrix" if is_two_phase else "tableau")
+            
             if not tableau:
                 continue
 
@@ -95,10 +111,15 @@ class ResultsView(ctk.CTkFrame):
             num_rows = len(tableau)
             num_cols = len(tableau[0])
 
-            headers = ["BV", "Z"]
-            for i in range(num_cols - 2):
-                headers.append(f"X{i+1}")
-            headers.append("RHS")
+            # ---------------- CONSTRUIR ENCABEZADOS DE COLUMNAS ----------------
+            if is_two_phase:
+                raw_headers = step.get("headers", [])
+                headers = ["BV"] + [var_translation.get(h.lower(), h.lower()) for h in raw_headers]
+            else:
+                headers = ["BV", "Z"]
+                for i in range(num_cols - 2):
+                    headers.append(f"x{i+1}")
+                headers.append("Sol")
 
             header_row = ctk.CTkFrame(table_frame, fg_color="transparent")
             header_row.pack(fill="x", pady=(0, 5))
@@ -115,11 +136,23 @@ class ResultsView(ctk.CTkFrame):
                     corner_radius=4
                 ).pack(side="left", padx=2)
 
+            # ---------------- PINTAR LAS FILAS DE LA TABLA ----------------
             for r in range(num_rows):
                 row_frame = ctk.CTkFrame(table_frame, fg_color="transparent")
                 row_frame.pack(side="top", fill="x")
 
-                base_label = "S" + str(r + 1) if r < num_rows - 1 else "Z"
+                # Determinar la variable básica (BV) para la fila actual
+                if is_two_phase:
+                    basis_list = step.get("basis", [])
+                    if r < len(basis_list):
+                        raw_label = str(basis_list[r]).lower()
+                        base_label = var_translation.get(raw_label, raw_label)
+                    elif r == num_rows - 2:
+                        base_label = "Z"
+                    else:
+                        base_label = "W"
+                else:
+                    base_label = "s" + str(r + 1) if r < num_rows - 1 else "Z"
 
                 ctk.CTkLabel(
                     row_frame,
@@ -132,6 +165,7 @@ class ResultsView(ctk.CTkFrame):
                     corner_radius=4
                 ).pack(side="left", padx=2, pady=2)
 
+                # Rellenar los valores numéricos
                 for c in range(num_cols):
                     value = tableau[r][c]
                     if isinstance(value, Fraction):
@@ -160,9 +194,17 @@ class ResultsView(ctk.CTkFrame):
                     ).pack(side="left", padx=2, pady=2)
 
         # =========================================================
-        # SOLUCIÓN FINAL SIMPLEX
+        # SOLUCIÓN FINAL (COMPATIBLE SIMPLEX Y DOS FASES)
         # =========================================================
-        sol = result.get("solution", {})
+        sol_z = result.get("z", result.get("solution", {}).get("z", "N/A"))
+        
+        if "variables" in result and isinstance(result["variables"], dict):
+            variables_dict = result["variables"]
+            # También normalizamos la tarjeta final de resultados
+            sol_vars = ", ".join([f"{var_translation.get(k.lower(), k.lower())} = {v}" for k, v in variables_dict.items()])
+        else:
+            sol_vars = str(result.get("solution", {}).get("variables", []))
+
         final_card = ctk.CTkFrame(
             self,
             fg_color=COLORS["card"],
@@ -172,14 +214,14 @@ class ResultsView(ctk.CTkFrame):
         )
         final_card.pack(pady=PADDING["md"], padx=PADDING["xl"], fill="x")
 
-        ctk.CTkLabel(final_card, text="✨ Solución Óptima Encontrada", font=FONTS["section"], text_color=COLORS["primary"]).pack(pady=(PADDING["sm"], PADDING["xs"]))
-        ctk.CTkLabel(final_card, text=f"Z = {sol.get('z', 'N/A')}", font=FONTS["title"], text_color=COLORS["text"]).pack(pady=5)
-        ctk.CTkLabel(final_card, text=f"Variables: {sol.get('variables', [])}", font=FONTS["body_bold"], text_color=COLORS["muted"]).pack(pady=(0, PADDING["sm"]))
+        ctk.CTkLabel(final_card, text=" Solución Óptima Encontrada", font=FONTS["section"], text_color=COLORS["primary"]).pack(pady=(PADDING["sm"], PADDING["xs"]))
+        ctk.CTkLabel(final_card, text=f"Z = {sol_z}", font=FONTS["title"], text_color=COLORS["text"]).pack(pady=5)
+        ctk.CTkLabel(final_card, text=f"Variables: {sol_vars}", font=FONTS["body_bold"], text_color=COLORS["muted"]).pack(pady=(0, PADDING["sm"]))
 
         ctk.CTkButton(self, text="← Volver al Menú Principal", font=FONTS["body_bold"], fg_color=COLORS["border"], hover_color=COLORS["muted"], text_color=COLORS["text"], width=220, height=40, command=self.go_home).pack(pady=(PADDING["sm"], PADDING["lg"]))
 
     # =========================================================
-    # 🔥 VISTA MÉTODO GRÁFICO CORREGIDA SIN DESBORDAMIENTOS
+    #  VISTA MÉTODO GRÁFICO CORREGIDA SIN DESBORDAMIENTOS
     # =========================================================
     def build_graphical_view(self):
         ctk.CTkLabel(
@@ -204,7 +246,6 @@ class ResultsView(ctk.CTkFrame):
         graph_frame = ctk.CTkFrame(main_split, fg_color=COLORS["card"], corner_radius=12)
         graph_frame.pack(side="left", fill="both", expand=True, padx=(0, PADDING["md"]))
 
-        # Reducimos levemente el tamaño para asegurar el encuadre perfecto
         fig, ax = plt.subplots(figsize=(4.2, 3.4), dpi=100)
         fig.patch.set_facecolor(COLORS["card"])
         ax.set_facecolor(COLORS["bg"])
@@ -294,9 +335,9 @@ class ResultsView(ctk.CTkFrame):
         scroll_right.pack(fill="both", expand=True)
 
         for step in self.result.get("steps", []):
-            if step.strip():
-                lbl_color = COLORS["secondary"] if "✓" in step or "🎯" in step else COLORS["text"]
-                lbl_font = FONTS["body_bold"] if "PASO" in step or "🎯" in step else FONTS["body"]
+            if isinstance(step, str) and step.strip():
+                lbl_color = COLORS["secondary"] if "✓" in step or "" in step else COLORS["text"]
+                lbl_font = FONTS["body_bold"] if "PASO" in step or "" in step else FONTS["body"]
                 
                 lbl = ctk.CTkLabel(
                     scroll_right,
@@ -312,7 +353,7 @@ class ResultsView(ctk.CTkFrame):
         opt_card = ctk.CTkFrame(self, fg_color=COLORS["card"], corner_radius=12, border_color=COLORS["primary"], border_width=1)
         opt_card.pack(fill="x", padx=PADDING["xl"], pady=(PADDING["xs"], PADDING["sm"]))
 
-        ctk.CTkLabel(opt_card, text="✨ Vértice Óptimo Seleccionado", font=FONTS["section"], text_color=COLORS["primary"]).pack(pady=(4, 0))
+        ctk.CTkLabel(opt_card, text=" Vértice Óptimo Seleccionado", font=FONTS["section"], text_color=COLORS["primary"]).pack(pady=(4, 0))
         
         coord_txt = f"X1 = {opt_vars[0]:.2f}, X2 = {opt_vars[1]:.2f}" if len(opt_vars) == 2 else "No calculadas"
         ctk.CTkLabel(opt_card, text=f"Coordenadas óptimas: [ {coord_txt} ]", font=FONTS["body_bold"], text_color=COLORS["text"]).pack(pady=2)

@@ -5,6 +5,8 @@ from app.components.constraint_row import ConstraintRow
 from app.core.model import LinearProgram, ObjectiveFunction, Constraint
 from app.core.simplex import SimplexSolver
 from app.core.graphical import GraphicalSolver
+# Importamos tu nuevo solver matemático del método de las dos fases
+from app.core.metodosfases import TwoPhaseSolver
 from app.utils.validators import clean_inputs
 from app.ui.results_view import ResultsView
 
@@ -245,7 +247,7 @@ class BuilderView(ctk.CTkFrame):
                 ),
                 constraints=parsed_constraints,
                 variables=self.variables
-              )
+            )
 
             # ======================================
             # SELECCIÓN DEL MÉTODO
@@ -257,14 +259,10 @@ class BuilderView(ctk.CTkFrame):
                 solver = GraphicalSolver(model)
                 result = solver.solve()
             elif self.method == "two_phase":
-                result = {
-                    "steps": [],
-                    "status": "EN_DESARROLLO",
-                    "solution": {
-                        "variables": [],
-                        "z": "Método Dos Fases en desarrollo"
-                    }
-                }
+                # Instanciamos tu solucionador matemático pasándole el modelo estructurado
+                solver = TwoPhaseSolver(model)
+                # Ejecutamos el algoritmo que retorna las iteraciones y el diccionario de respuestas
+                result = solver.solve()
             else:
                 raise Exception("Método no reconocido")
 
