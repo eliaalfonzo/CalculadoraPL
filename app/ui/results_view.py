@@ -1,6 +1,7 @@
 import customtkinter as ctk
 from fractions import Fraction
 from assets.styles import COLORS, FONTS, PADDING
+import re
 
 # Imports de Matplotlib para integración interactiva y matemática seria
 import matplotlib
@@ -25,8 +26,13 @@ class ResultsView(ctk.CTkFrame):
             self.build_graphical_view()
             return
 
-        # ---------------- TÍTULO DINÁMICO (SIMPLEX O DOS FASES) ----------------
-        title_text = "Iteraciones Método de las Dos Fases" if method == "two_phase" or "steps" in result and len(result["steps"]) > 0 and "headers" in result["steps"][0] else "Iteraciones Método Simplex"
+        # ---------------- TÍTULO DINÁMICO ----------------
+        if method == "two_phase":
+            title_text = "Iteraciones del Método de las Dos Fases"
+        elif method == "simplex":
+            title_text = "Iteraciones del Método Simplex"
+        else:
+            title_text = "Resultados"
         
         ctk.CTkLabel(
             self,
@@ -58,20 +64,25 @@ class ResultsView(ctk.CTkFrame):
         )
 
         # =========================================================
-        # DICCIONARIO DE TRADUCCIÓN DE VARIABLES SOLICITADO
-        # =========================================================
-        var_translation = {
-            "a1": "s1",
-            "e1": "s2",
-            "a2": "r1",
-            "s2": "r2",
-            "rhs": "Sol"
-        }
-
-        # =========================================================
         # ITERACIONES SIMPLEX / DOS FASES
         # =========================================================
+        current_phase = None
+
         for step_idx, step in enumerate(result.get("steps", [])):
+            
+            # Inyección dinámica de títulos de fase (Fase I / Fase II)
+            phase = step.get("phase")
+            if phase != current_phase:
+                current_phase = phase
+                phase_title = "FASE I" if phase == 1 else "FASE II"
+                
+                ctk.CTkLabel(
+                    scroll,
+                    text=phase_title,
+                    font=FONTS["title"],
+                    text_color=COLORS["primary"]
+                ).pack(pady=(20, 10))
+
             frame = ctk.CTkFrame(
                 scroll,
                 fg_color=COLORS["card"],
@@ -80,6 +91,7 @@ class ResultsView(ctk.CTkFrame):
             frame.pack(
                 pady=PADDING["sm"],
                 fill="x",
+                anchor="n",
                 padx=PADDING["sm"]
             )
 
@@ -111,15 +123,59 @@ class ResultsView(ctk.CTkFrame):
             num_rows = len(tableau)
             num_cols = len(tableau[0])
 
-            # ---------------- CONSTRUIR ENCABEZADOS DE COLUMNAS ----------------
+            # ---------------- CONSTRUIR ENCABEZADOS REORDENADOS Y MAPA DE COLUMNAS ----------------
             if is_two_phase:
+                objective = step.get("objective", "Z")
                 raw_headers = step.get("headers", [])
-                headers = ["BV"] + [var_translation.get(h.lower(), h.lower()) for h in raw_headers]
+                
+                # Guardar el índice original de cada columna y tipificar
+                header_info = []
+                for idx, h in enumerate(raw_headers):
+                    h = h.lower()
+                    if h == "rhs":
+                        tipo = 3
+                    elif h.startswith("x"):
+                        tipo = 0
+                    elif h.startswith("s") or h.startswith("e"):
+                        tipo = 1
+                    elif h.startswith("a"):
+                        tipo = 2
+                    else:
+                        tipo = 99
+                    header_info.append((tipo, idx, h))
+
+                # Ordenar por tipo e índice original
+                header_info.sort(key=lambda x: (x[0], x[1]))
+
+                # Crear el mapa de orden de columnas real de la matriz
+                column_order = [x[1] for x in header_info]
+
+                # Traducir y formatear las etiquetas de los encabezados
+                translated_headers = []
+                for _, _, h in header_info:
+                    if h.startswith("a"):
+                        translated_headers.append(h.replace("a", "R").upper())
+                    elif h.startswith("e"):
+                        translated_headers.append(h.replace("e", "S").upper())
+                    elif h == "rhs":
+                        translated_headers.append("SOL")
+                    else:
+                        translated_headers.append(h.upper())
+
+                headers = ["VB", objective] + translated_headers
             else:
-                headers = ["BV", "Z"]
-                for i in range(num_cols - 2):
-                    headers.append(f"x{i+1}")
-                headers.append("Sol")
+                headers = ["VB", "Z"]
+                num_vars = len(result.get("solution", {}).get("variables", []))
+                num_slack = num_cols - num_vars - 1
+
+                for i in range(num_vars):
+                    headers.append(f"X{i+1}")
+
+                for i in range(num_slack):
+                    headers.append(f"S{i+1}")
+
+                headers.append("SOL")
+                column_order = list(range(num_cols))
 
             header_row = ctk.CTkFrame(table_frame, fg_color="transparent")
             header_row.pack(fill="x", pady=(0, 5))
@@ -137,22 +193,32 @@ class ResultsView(ctk.CTkFrame):
                 ).pack(side="left", padx=2)
 
             # ---------------- PINTAR LAS FILAS DE LA TABLA ----------------
-            for r in range(num_rows):
+            row_order = [num_rows - 1] + list(range(num_rows - 1))
+
+            for display_row, real_row in enumerate(row_order):
                 row_frame = ctk.CTkFrame(table_frame, fg_color="transparent")
                 row_frame.pack(side="top", fill="x")
 
-                # Determinar la variable básica (BV) para la fila actual
-                if is_two_phase:
-                    basis_list = step.get("basis", [])
-                    if r < len(basis_list):
-                        raw_label = str(basis_list[r]).lower()
-                        base_label = var_translation.get(raw_label, raw_label)
-                    elif r == num_rows - 2:
-                        base_label = "Z"
+                # ---------------- VB ----------------
+                basis_list = step.get("basis", [])
+
+                if real_row == num_rows - 1:
+                    if is_two_phase:
+                        base_label = step.get("objective", "Z")
                     else:
-                        base_label = "W"
+                        base_label = "Z"
+                elif real_row < len(basis_list):
+                    raw_label = str(basis_list[real_row]).lower().strip()
+                    if raw_label == "rhs":
+                        base_label = "SOL"
+                    elif raw_label.startswith("a"):
+                        base_label = raw_label.replace("a", "R").upper()
+                    elif raw_label.startswith("e"):
+                        base_label = raw_label.replace("e", "S").upper()
+                    else:
+                        base_label = raw_label.upper()
                 else:
-                    base_label = "s" + str(r + 1) if r < num_rows - 1 else "Z"
+                    base_label = ""
 
                 ctk.CTkLabel(
                     row_frame,
@@ -165,9 +231,26 @@ class ResultsView(ctk.CTkFrame):
                     corner_radius=4
                 ).pack(side="left", padx=2, pady=2)
 
-                # Rellenar los valores numéricos
-                for c in range(num_cols):
-                    value = tableau[r][c]
+                # ---------------- COLUMNA DE LA FUNCIÓN OBJETIVO ----------------
+                if real_row == num_rows - 1:
+                    obj_value = "1"
+                else:
+                    obj_value = "0"
+
+                ctk.CTkLabel(
+                    row_frame,
+                    text=obj_value,
+                    width=75,
+                    height=32,
+                    font=FONTS["table"],
+                    fg_color=COLORS["border"],
+                    text_color=COLORS["text"],
+                    corner_radius=4
+                ).pack(side="left", padx=2, pady=2)
+
+                # ---------------- VALORES NUMÉRICOS REORDENADOS ----------------
+                for c in column_order:
+                    value = tableau[real_row][c]
                     if isinstance(value, Fraction):
                         if value.denominator == 1:
                             value = str(value.numerator)
@@ -176,9 +259,9 @@ class ResultsView(ctk.CTkFrame):
                     else:
                         value = str(value)
 
-                    is_pivot = (r == pivot_row and c == pivot_col)
+                    is_pivot = (real_row == pivot_row and c == pivot_col)
                     bg = COLORS["primary"] if is_pivot else (
-                        COLORS["bg"] if r % 2 == 0 else COLORS["border"]
+                        COLORS["bg"] if display_row % 2 == 0 else COLORS["border"]
                     )
                     text_color = "black" if is_pivot else COLORS["text"]
 
@@ -200,10 +283,31 @@ class ResultsView(ctk.CTkFrame):
         
         if "variables" in result and isinstance(result["variables"], dict):
             variables_dict = result["variables"]
-            # También normalizamos la tarjeta final de resultados
-            sol_vars = ", ".join([f"{var_translation.get(k.lower(), k.lower())} = {v}" for k, v in variables_dict.items()])
+            formatted_vars = []
+            for k, v in variables_dict.items():
+                lbl = k.lower().strip()
+                if lbl.startswith("a"):
+                    lbl = lbl.replace("a", "R")
+                elif lbl.startswith("e"):
+                    lbl = lbl.replace("e", "S")
+                formatted_vars.append(f"{lbl.upper()} = {v}")
+            sol_vars = ", ".join(formatted_vars)
         else:
-            sol_vars = str(result.get("solution", {}).get("variables", []))
+            solution = result.get("solution", {})
+            variables = solution.get("variables", [])
+
+            formatted_vars = []
+            for i, value in enumerate(variables):
+                if isinstance(value, Fraction):
+                    if value.denominator == 1:
+                        txt = str(value.numerator)
+                    else:
+                        txt = f"{value.numerator}/{value.denominator}"
+                else:
+                    txt = str(value)
+                formatted_vars.append(f"X{i+1} = {txt}")
+
+            sol_vars = ", ".join(formatted_vars)
 
         final_card = ctk.CTkFrame(
             self,
@@ -218,7 +322,17 @@ class ResultsView(ctk.CTkFrame):
         ctk.CTkLabel(final_card, text=f"Z = {sol_z}", font=FONTS["title"], text_color=COLORS["text"]).pack(pady=5)
         ctk.CTkLabel(final_card, text=f"Variables: {sol_vars}", font=FONTS["body_bold"], text_color=COLORS["muted"]).pack(pady=(0, PADDING["sm"]))
 
-        ctk.CTkButton(self, text="← Volver al Menú Principal", font=FONTS["body_bold"], fg_color=COLORS["border"], hover_color=COLORS["muted"], text_color=COLORS["text"], width=220, height=40, command=self.go_home).pack(pady=(PADDING["sm"], PADDING["lg"]))
+        ctk.CTkButton(
+            self, 
+            text="← Volver al Menú Principal", 
+            font=FONTS["body_bold"], 
+            fg_color=COLORS["border"], 
+            hover_color=COLORS["muted"], 
+            text_color=COLORS["text"], 
+            width=220, 
+            height=40, 
+            command=self.go_home
+        ).pack(pady=(PADDING["sm"], PADDING["lg"]))
 
     # =========================================================
     #  VISTA MÉTODO GRÁFICO CORREGIDA SIN DESBORDAMIENTOS
@@ -379,7 +493,7 @@ class ResultsView(ctk.CTkFrame):
         ).pack(pady=(0, PADDING["md"]))
 
     def go_home(self):
-        plt.close('all')  # Liberar memoria latente de gráficos
-        self.destroy()   # Eliminar bucles gráficos concurrentes
+        plt.close('all')  # Liberar memoria latente de gráficos e hilos de Matplotlib
+        self.destroy()   # Destruir el contenedor actual de la UI
         from app.ui.home_view import HomeView
         HomeView(self.master).pack(fill="both", expand=True)

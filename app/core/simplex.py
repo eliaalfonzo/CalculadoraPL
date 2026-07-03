@@ -8,6 +8,7 @@ class SimplexSolver:
         self.tableaux = []
         self.steps = []
         self.status = "UNKNOWN"
+        self.basis = []
 
     # ---------------------------
     # TABLA INICIAL
@@ -37,11 +38,15 @@ class SimplexSolver:
 
         tableau.append(z_row)
 
+        # Variables básicas iniciales
+        self.basis = [f"s{i+1}" for i in range(num_constraints)]
+
         self.tableaux.append(deepcopy(tableau))
 
         self.steps.append({
             "message": "Tabla inicial creada",
-            "tableau": deepcopy(tableau)
+            "tableau": deepcopy(tableau),
+            "basis": deepcopy(self.basis)
         })
 
     # ---------------------------
@@ -77,7 +82,8 @@ class SimplexSolver:
         if min_count > 1:
             self.steps.append({
                 "message": "⚠️ Degeneración detectada (empate en razón mínima)",
-                "tableau": deepcopy(tableau)
+                "tableau": deepcopy(tableau),
+                "basis": deepcopy(self.basis)
             })
 
         return pivot_row, pivot_col, "OK"
@@ -86,6 +92,15 @@ class SimplexSolver:
     # OPERACIÓN PIVOTE
     # ---------------------------
     def pivot(self, tableau, row, col):
+        # La variable que entra a la base
+        if col < self.model.variables:
+            entering = f"x{col + 1}"
+        else:
+            entering = f"s{col - self.model.variables + 1}"
+
+        # Actualizar la variable básica de la fila pivote
+        self.basis[row] = entering
+
         pivot_value = tableau[row][col]
 
         tableau[row] = [x / pivot_value for x in tableau[row]]
@@ -102,7 +117,6 @@ class SimplexSolver:
     # CLASIFICACIÓN DE SOLUCIÓN
     # ---------------------------
     def classify_solution(self, tableau):
-
         z_row = tableau[-1]
 
         # ---------------- ÓPTIMA MÚLTIPLE ----------------
@@ -127,7 +141,7 @@ class SimplexSolver:
         self.build_initial_tableau()
 
         tableau = deepcopy(self.tableaux[0])
-        iteration = 0
+        iteration = 1
 
         while True:
             pivot_row, pivot_col, status_flag = self.get_pivot(tableau)
@@ -140,7 +154,8 @@ class SimplexSolver:
                     "message": "❌ Problema no acotado",
                     "tableau": deepcopy(tableau),
                     "pivot_row": pivot_row,
-                    "pivot_col": pivot_col
+                    "pivot_col": pivot_col,
+                    "basis": deepcopy(self.basis)
                 })
                 break
 
@@ -152,7 +167,8 @@ class SimplexSolver:
                     "message": f"✔ Óptimo alcanzado ({self.status})",
                     "tableau": deepcopy(tableau),
                     "pivot_row": None,
-                    "pivot_col": None
+                    "pivot_col": None,
+                    "basis": deepcopy(self.basis)
                 })
                 break
 
@@ -161,7 +177,8 @@ class SimplexSolver:
                 "message": f"Iteración {iteration}",
                 "tableau": deepcopy(tableau),
                 "pivot_row": pivot_row,
-                "pivot_col": pivot_col
+                "pivot_col": pivot_col,
+                "basis": deepcopy(self.basis)
             })
 
             self.pivot(tableau, pivot_row, pivot_col)
@@ -188,8 +205,11 @@ class SimplexSolver:
             column = [tableau[i][j] for i in range(len(tableau) - 1)]
 
             if column.count(Fraction(0)) == len(column) - 1:
-                idx = column.index(Fraction(1))
-                solution[j] = tableau[idx][-1]
+                try:
+                    idx = column.index(Fraction(1))
+                    solution[j] = tableau[idx][-1]
+                except ValueError:
+                    pass
 
         z_value = tableau[-1][-1]
 
