@@ -1,31 +1,33 @@
 # assets/styles.py
 
 COLORS = {
-    "bg": "#0f172a",          # Slate 900 (Fondo principal)
-    "card": "#1e293b",        # Slate 800 (Contenedores y tarjetas)
-    "primary": "#22c55e",     # Green 500 (Éxito, soluciones, resolver)
-    "primary_hover": "#16a34a",
-    "secondary": "#38bdf8",   # Sky 400 (Información, métodos, acentos)
-    "secondary_hover": "#0ea5e9",
-    "text": "#f8fafc",        # Slate 50 (Texto principal)
-    "muted": "#94a3b8",       # Slate 400 (Subtítulos, placeholders)
-    "border": "#334155"       # Slate 700 (Líneas divisorias o tablas)
+    "bg": "#121214",             # Negro mate profundo / Dark Charcoal (Fondo general)
+    "card": "#1A1A1E",           # Gris oscuro suave para las tarjetas (hace que floten sobre el fondo)
+    "text": "#F5F5F7",           # Blanco premium / Off-white (Máxima legibilidad)
+    "muted": "#A1A1AA",          # Gris claro apagado para subtítulos y x1, x2...
+    "primary": "#E8A0B5",        # Rosa pastel / Blush (Resalta hermoso sobre el oscuro)
+    "primary_hover": "#D4899E",  # Hover del botón principal
+    "secondary": "#C8A2C8",      # Lila pastel más encendido para que no se pierda en lo oscuro
+    "secondary_hover": "#A9849D",# Hover para secundarios
+    "border": "#2D2D34",         # Gris oscuro sutil para bordes (así las cajas no se ven toscas)
+    "footer_text": "#6B6B76"     # Gris oscuro sutil para los créditos inferiores
 }
 
 FONTS = {
-    "title": ("Montserrat", 24, "bold"),
-    "subtitle": ("Montserrat", 15, "normal"),
-    "section": ("Montserrat", 18, "bold"),
-    "body_bold": ("Montserrat", 14, "bold"),
-    "body": ("Montserrat", 14, "normal"),
-    "caption": ("Montserrat", 12, "normal"),
-    "table": ("Montserrat", 12, "bold")
+    "title": ("Century Gothic", 24, "bold"),
+    "subtitle": ("Segoe UI", 13),
+    "section": ("Century Gothic", 15, "bold"),
+    "body_bold": ("Segoe UI", 13, "bold"),
+    "body": ("Segoe UI", 13),
+    "caption": ("Segoe UI", 12),           # Corregido: Para descripciones y subtítulos pequeños
+    "table": ("Segoe UI", 12, "bold"),      # Corregido: Para las matrices matemáticas de Simplex y 2 Fases
+    "footer": ("Segoe UI", 11, "italic")
 }
 
 PADDING = {
-    "xs": 5,
-    "sm": 10,
+    "xs": 4,
+    "sm": 8,
     "md": 15,
-    "lg": 25,
-    "xl": 40
+    "lg": 22,
+    "xl": 30
 }
