@@ -199,6 +199,38 @@ class BuilderView(ctk.CTkFrame):
                     text_color=COLORS["muted"]
                 ).pack(side="left", padx=PADDING["xs"])
 
+        # ==========================
+        # CONDICIÓN DE NO NEGATIVIDAD
+        # ==========================
+        non_negative_card = ctk.CTkFrame(
+            self.container,
+            fg_color=COLORS["card"],
+            corner_radius=8
+        )
+        non_negative_card.pack(
+            pady=PADDING["sm"],
+            fill="x",
+            padx=PADDING["sm"]
+        )
+
+        ctk.CTkLabel(
+            non_negative_card,
+            text="Condición de no negatividad:",
+            font=FONTS["body_bold"],
+            text_color=COLORS["secondary"]
+        ).pack(anchor="w", padx=PADDING["md"], pady=(PADDING["sm"], 0))
+
+        variables_text = ", ".join(
+            [f"X{i+1}" for i in range(self.variables)]
+        )
+
+        ctk.CTkLabel(
+            non_negative_card,
+            text=f"{variables_text} ≥ 0",
+            font=FONTS["body"],
+            text_color=COLORS["text"]
+        ).pack(anchor="w", padx=PADDING["md"], pady=(0, PADDING["sm"]))
+
         self.add_btn.pack(side="left", padx=PADDING["sm"])
         self.solve_btn.pack(side="left", padx=PADDING["sm"])
 

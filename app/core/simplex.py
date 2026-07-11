@@ -7,8 +7,90 @@ class SimplexSolver:
         self.model = model
         self.tableaux = []
         self.steps = []
-        self.status = "UNKNOWN"
+        self.status = {
+            "tipo_solucion": "Indeterminado",
+            "acotada": "Desconocido",
+            "degeneracion": "No"
+        }
         self.basis = []
+        self.degenerate = False
+
+    # ---------------------------
+    # AUXILIAR DE FORMATO
+    # ---------------------------
+    @staticmethod
+    def _format_term(coef, variable, is_first=False):
+        """Formatea un término matemático respetando los signos visuales."""
+        if coef == 0:
+            return ""
+        
+        # Determinar el signo y formatear el coeficiente absoluto
+        sign = "+ " if coef > 0 else "- "
+        if is_first:
+            sign = "" if coef > 0 else "-"
+            
+        return f"{sign}{abs(coef)}{variable}"
+
+    # ---------------------------
+    # ESTANDARIZACIÓN
+    # ---------------------------
+    def get_standardization(self):
+        lines = []
+
+        # Función objetivo (Moviendo variables al lado izquierdo junto a Z)
+        mode = self.model.objective.mode.upper()
+        obj_terms = []
+        
+        for i, coef in enumerate(self.model.objective.coefficients):
+            # Al pasar al lado de Z, el signo se invierte formalmente en el formato clásico:
+            # Si coef > 0 pasa como -coefX, si coef < 0 pasa como +coefX
+            inverted_coef = -coef
+            term = self._format_term(inverted_coef, f"X{i+1}", is_first=False)
+            if term:
+                obj_terms.append(term)
+
+        # Unir los términos limpiando espacios redundantes
+        obj_string = " ".join(obj_terms)
+        if obj_string and not obj_string.startswith("-"):
+            obj_string = "+ " + obj_string
+
+        lines.append(f"{mode} Z {obj_string} = 0".replace("  ", " "))
+
+        slack = 1
+
+        # Restricciones
+        for c in self.model.constraints:
+            left_terms = []
+
+            for i, coef in enumerate(c.coefficients):
+                is_first = (len(left_terms) == 0)
+                term = self._format_term(coef, f"X{i+1}", is_first=is_first)
+                if term:
+                    left_terms.append(term)
+
+            relation = c.sign
+
+            if relation == "<=":
+                left_terms.append(f"+ S{slack}" if left_terms else f"S{slack}")
+                slack += 1
+            elif relation == ">=":
+                left_terms.append(f"- S{slack}" if left_terms else f"-S{slack}")
+                slack += 1
+
+            equation = " ".join(left_terms) + f" = {c.value}"
+            lines.append(equation.replace("  ", " "))
+
+        variables = []
+
+        for i in range(self.model.variables):
+            variables.append(f"X{i+1}")
+
+        for i in range(slack - 1):
+            variables.append(f"S{i+1}")
+
+        lines.append(",".join(variables) + " ≥ 0")
+
+        return lines
 
     # ---------------------------
     # TABLA INICIAL
@@ -80,6 +162,7 @@ class SimplexSolver:
         min_count = sum(1 for r, _ in ratios if r == min_ratio)
 
         if min_count > 1:
+            self.degenerate = True
             self.steps.append({
                 "message": "⚠️ Degeneración detectada (empate en razón mínima)",
                 "tableau": deepcopy(tableau),
@@ -118,26 +201,50 @@ class SimplexSolver:
     # ---------------------------
     def classify_solution(self, tableau):
         z_row = tableau[-1]
+        
+        # Por defecto asumimos Única y Sí acotada
+        tipo_solucion = "Única"
+        acotada = "Sí"
+        
+        # Revisar si existió degeneración por empate o si hay un lado derecho en 0
+        degeneracion = "No"
+        if self.degenerate:
+            degeneracion = "Sí"
+        else:
+            for row in tableau[:-1]:
+                if row[-1] == 0:
+                    degeneracion = "Sí"
+                    break
 
         # ---------------- ÓPTIMA MÚLTIPLE ----------------
+        # Comprobamos variables no básicas con costo reducido igual a cero
         for j in range(len(z_row) - 1):
-            if z_row[j] == 0:
-                column = [tableau[i][j] for i in range(len(tableau) - 1)]
+            # Identificar el nombre de la variable de la columna j
+            if j < self.model.variables:
+                var_name = f"x{j + 1}"
+            else:
+                var_name = f"s{j - self.model.variables + 1}"
+            
+            # Si el costo reducido es 0 y NO está en la base, hay soluciones múltiples
+            if z_row[j] == 0 and var_name not in self.basis:
+                tipo_solucion = "Múltiple"
+                break
 
-                if column.count(Fraction(1)) == 1 and column.count(Fraction(0)) == len(column) - 1:
-                    return "OPTIMA_MULTIPLE"
-
-        # ---------------- DEGENERADA ----------------
-        for row in tableau[:-1]:
-            if row[-1] == 0:
-                return "DEGENERADA"
-
-        return "OPTIMA_UNICA"
+        return {
+            "tipo_solucion": tipo_solucion,
+            "acotada": acotada,
+            "degeneracion": degeneracion
+        }
 
     # ---------------------------
     # SOLVER
     # ---------------------------
     def solve(self):
+        self.steps.append({
+            "type": "standardization",
+            "content": self.get_standardization()
+        })
+
         self.build_initial_tableau()
 
         tableau = deepcopy(self.tableaux[0])
@@ -148,7 +255,11 @@ class SimplexSolver:
 
             # ---------------- NO ACOTADO ----------------
             if status_flag == "NO_ACOTADO":
-                self.status = "NO_ACOTADA"
+                self.status = {
+                    "tipo_solucion": "Óptima no acotada",
+                    "acotada": "No",
+                    "degeneracion": "Sí" if self.degenerate else "No"
+                }
 
                 self.steps.append({
                     "message": "❌ Problema no acotado",
@@ -164,7 +275,7 @@ class SimplexSolver:
                 self.status = self.classify_solution(tableau)
 
                 self.steps.append({
-                    "message": f"✔ Óptimo alcanzado ({self.status})",
+                    "message": f"✔ Óptimo alcanzado ({self.status['tipo_solucion']})",
                     "tableau": deepcopy(tableau),
                     "pivot_row": None,
                     "pivot_col": None,
@@ -191,7 +302,8 @@ class SimplexSolver:
             "tableaux": self.tableaux,
             "steps": self.steps,
             "solution": self.extract_solution(tableau),
-            "status": self.status
+            "status": self.status,
+            "solution_type": self.status
         }
 
     # ---------------------------

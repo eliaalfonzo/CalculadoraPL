@@ -41,15 +41,31 @@ class ResultsView(ctk.CTkFrame):
             text_color=COLORS["text"]
         ).pack(pady=(PADDING["lg"], PADDING["sm"]))
 
-        # ---------------- TIPO SOLUCIÓN ----------------
-        status = result.get("status", "DESCONOCIDO")
+        # ---------------- MODIFICACIÓN 1: TIPO SOLUCIÓN (SIMPLEX / DOS FASES) ----------------
+        solution_info = result.get("solution_type")
+        if solution_info:
+            info_text = (
+                f"Tipo de solución: {solution_info['tipo_solucion']}\n"
+                f"Acotada: {solution_info['acotada']}\n"
+                f"Degeneración: {solution_info['degeneracion']}"
+            )
 
-        ctk.CTkLabel(
-            self,
-            text=f"Tipo de solución: {status}",
-            font=FONTS["section"],
-            text_color=COLORS["primary"]
-        ).pack(pady=(0, PADDING["sm"]))
+            ctk.CTkLabel(
+                self,
+                text=info_text,
+                font=FONTS["section"],
+                text_color=COLORS["primary"],
+                justify="left"
+            ).pack(pady=(0, PADDING["sm"]))
+        else:
+            status = result.get("status", "DESCONOCIDO")
+
+            ctk.CTkLabel(
+                self,
+                text=f"Estado: {status}",
+                font=FONTS["section"],
+                text_color=COLORS["primary"]
+            ).pack(pady=(0, PADDING["sm"]))
 
         # ---------------- SCROLL ----------------
         scroll = ctk.CTkScrollableFrame(
@@ -69,6 +85,46 @@ class ResultsView(ctk.CTkFrame):
         current_phase = None
 
         for step_idx, step in enumerate(result.get("steps", [])):
+
+            # =========================================================
+            # MOSTRAR ESTANDARIZACIÓN (MODIFICADO CON CONTROL DE MÉTODO)
+            # =========================================================
+            if method == "simplex" and step.get("type") == "standardization":
+                standard_frame = ctk.CTkFrame(
+                    scroll,
+                    fg_color=COLORS["card"],
+                    corner_radius=10
+                )
+                standard_frame.pack(
+                    pady=PADDING["sm"],
+                    fill="x",
+                    padx=PADDING["sm"]
+                )
+
+                ctk.CTkLabel(
+                    standard_frame,
+                    text="Estandarización:",
+                    font=FONTS["title"],
+                    text_color=COLORS["primary"]
+                ).pack(
+                    anchor="w",
+                    padx=PADDING["md"],
+                    pady=PADDING["sm"]
+                )
+
+                for line in step.get("content", []):
+                    ctk.CTkLabel(
+                        standard_frame,
+                        text=line,
+                        font=FONTS["body"],
+                        text_color=COLORS["text"]
+                    ).pack(
+                        anchor="w",
+                        padx=PADDING["lg"],
+                        pady=2
+                    )
+
+                continue
             
             # Inyección dinámica de títulos de fase (Fase I / Fase II)
             phase = step.get("phase")
@@ -124,11 +180,9 @@ class ResultsView(ctk.CTkFrame):
             # CONFIGURACIÓN DE COLUMNAS Y ENCABEZADOS SEGÚN EL MÉTODO
             # =========================================================
             if is_two_phase:
-                # Modificación 1 y 2: Los encabezados y columnas ya vienen listos y ordenados
                 headers = ["VB"] + step.get("headers", [])
                 column_order = list(range(len(tableau[0])))
             else:
-                # ---------------- MODO SIMPLEX CLÁSICO (PRESERVADO) ----------------
                 num_rows = len(tableau)
                 num_cols = len(tableau[0])
                 headers = ["VB", "Z"]
@@ -160,7 +214,6 @@ class ResultsView(ctk.CTkFrame):
                     corner_radius=4
                 ).pack(side="left", padx=2)
 
-            # Modificación 3: Definición unificada del orden de filas sin invertir la fila Z/R
             num_rows = len(tableau)
             if is_two_phase:
                 row_order = list(range(num_rows))
@@ -175,7 +228,6 @@ class ResultsView(ctk.CTkFrame):
                 # ---------------- COLUMNA VB (VARIABLES BÁSICAS) ----------------
                 basis_list = step.get("basis", [])
 
-                # Modificación 4: Lógica de VB unificada y limpia para Dos Fases
                 if is_two_phase:
                     if real_row < len(basis_list):
                         base_label = basis_list[real_row]
@@ -209,7 +261,6 @@ class ResultsView(ctk.CTkFrame):
                 ).pack(side="left", padx=2, pady=2)
 
                 # ---------------- COLUMNA DE LA FUNCIÓN OBJETIVO / PRIMERA COLUMNA R/Z ----------------
-                # Modificación 5: Extraer dinámicamente el valor objetivo real en Dos Fases
                 if is_two_phase:
                     obj_value = tableau[real_row][0]
                 else:
@@ -226,19 +277,22 @@ class ResultsView(ctk.CTkFrame):
                 else:
                     obj_value_str = str(obj_value)
 
+                is_first_col_pivot = is_two_phase and (real_row == pivot_row and 0 == pivot_col)
+                bg_first_col = COLORS["primary"] if is_first_col_pivot else COLORS["border"]
+                text_first_col = "black" if is_first_col_pivot else COLORS["text"]
+
                 ctk.CTkLabel(
                     row_frame,
                     text=obj_value_str,
                     width=75,
                     height=32,
                     font=FONTS["table"],
-                    fg_color=COLORS["border"],
-                    text_color=COLORS["text"],
+                    fg_color=bg_first_col,
+                    text_color=text_first_col,
                     corner_radius=4
                 ).pack(side="left", padx=2, pady=2)
 
                 # ---------------- VALORES NUMÉRICOS RESTANTES ----------------
-                # Modificación 6: En Dos Fases saltamos el índice [0] porque ya se renderizó arriba
                 cols_to_render = column_order[1:] if is_two_phase else column_order
 
                 for c in cols_to_render:
@@ -252,9 +306,8 @@ class ResultsView(ctk.CTkFrame):
                         value = str(value)
 
                     is_pivot = (real_row == pivot_row and c == pivot_col)
-                    bg = COLORS["primary"] if is_pivot else (
-                        COLORS["bg"] if display_row % 2 == 0 else COLORS["border"]
-                    )
+                    
+                    bg = COLORS["primary"] if is_pivot else COLORS["bg"]
                     text_color = "black" if is_pivot else COLORS["text"]
 
                     ctk.CTkLabel(
@@ -337,13 +390,31 @@ class ResultsView(ctk.CTkFrame):
             text_color=COLORS["text"]
         ).pack(pady=(PADDING["md"], PADDING["xs"]))
 
-        status = self.result.get("status", "DESCONOCIDO")
-        ctk.CTkLabel(
-            self,
-            text=f"Estado del Modelo: {status}",
-            font=FONTS["section"],
-            text_color=COLORS["primary"]
-        ).pack(pady=(0, PADDING["xs"]))
+        # ---------------- MODIFICACIÓN 2: TIPO SOLUCIÓN (MÉTODO GRÁFICO) ----------------
+        solution_info = self.result.get("solution_type")
+        if solution_info:
+            info_text = (
+                f"Tipo de solución: {solution_info['tipo_solucion']}\n"
+                f"Región: {solution_info['region']}\n"
+                f"Degeneración: {solution_info['degeneracion']}\n"
+                f"Región factible: {solution_info['region_factible']}"
+            )
+
+            ctk.CTkLabel(
+                self,
+                text=info_text,
+                font=FONTS["section"],
+                text_color=COLORS["primary"],
+                justify="left"
+            ).pack(pady=(0, PADDING["xs"]))
+        else:
+            status = self.result.get("status", "DESCONOCIDO")
+            ctk.CTkLabel(
+                self,
+                text=f"Estado del Modelo: {status}",
+                font=FONTS["section"],
+                text_color=COLORS["primary"]
+            ).pack(pady=(0, PADDING["xs"]))
 
         main_split = ctk.CTkFrame(self, fg_color="transparent")
         main_split.pack(fill="both", expand=True, padx=PADDING["xl"], pady=PADDING["xs"])
@@ -362,8 +433,20 @@ class ResultsView(ctk.CTkFrame):
         ax.spines['right'].set_color(COLORS["border"])
         ax.xaxis.label.set_color(COLORS["text"])
         ax.yaxis.label.set_color(COLORS["text"])
-        ax.tick_params(colors=COLORS["muted"], labelsize=9)
-        ax.grid(True, color=COLORS["border"], linestyle="--", alpha=0.5)
+        
+        ax.tick_params(
+            colors=COLORS["muted"],
+            labelsize=9
+        )
+        # ================================
+        # PLANO CARTESIANO (MODIFICADO)
+        # ================================
+        ax.grid(
+            True,
+            color=COLORS["border"],
+            linestyle="--",
+            alpha=0.5
+        )
 
         graph_data = self.result.get("graph_data", {})
         constraints = graph_data.get("constraints", [])
@@ -379,6 +462,8 @@ class ResultsView(ctk.CTkFrame):
         x_vals = np.linspace(0, upper_bound, 400)
         ax.set_xlim(0, upper_bound)
         ax.set_ylim(0, upper_bound)
+        
+        # Bloque de paso eliminado para volver a los límites previos
         ax.set_xlabel("Variable X1")
         ax.set_ylabel("Variable X2")
 

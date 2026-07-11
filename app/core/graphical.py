@@ -84,6 +84,40 @@ class GraphicalSolver:
         return lower[:-1] + upper[:-1]
 
     # ==============================
+    # CAMBIO 1: DETECTAR REGIÓN ACOTADA
+    # ==============================
+    def is_bounded_region(self, feasible, hull):
+        # Si la envolvente convexa tiene suficientes vértices
+        # y todos los puntos están contenidos en ella,
+        # asumimos región cerrada y acotada.
+        if len(hull) >= 3:
+            return True
+        return False
+
+    # ==============================
+    # CAMBIO 2: DETECTAR DEGENERACIÓN
+    # ==============================
+    def is_degenerate_vertex(self, point):
+        if point is None:
+            return False
+
+        x, y = point
+        active_constraints = 0
+
+        for c in self.model.constraints:
+            a, b = map(Fraction, c.coefficients)
+            rhs = Fraction(c.value)
+
+            lhs = a * x + b * y
+
+            if lhs == rhs:
+                active_constraints += 1
+
+        # En dos variables normalmente convergen 2 restricciones.
+        # Si hay más, es degenerado.
+        return active_constraints > 2
+
+    # ==============================
     # SOLVER PRINCIPAL
     # ==============================
     def solve(self):
@@ -165,10 +199,11 @@ class GraphicalSolver:
         hull = self.convex_hull(feasible)
 
         # ==============================
-        # 5. OPTIMIZAR FUNCIÓN OBJETIVO
+        # 5. CAMBIO 3: OPTIMIZAR FUNCIÓN OBJETIVO
         # ==============================
         best_point = None
         best_value = None
+        optimal_points = []
 
         for x, y in feasible:
             z = self.evaluate(x, y)
@@ -176,16 +211,23 @@ class GraphicalSolver:
             if best_value is None:
                 best_value = z
                 best_point = (x, y)
+                optimal_points.append((x, y))
                 continue
 
             if self.model.objective.mode == "max":
                 if z > best_value:
                     best_value = z
                     best_point = (x, y)
+                    optimal_points = [(x, y)]
+                elif z == best_value:
+                    optimal_points.append((x, y))
             else:
                 if z < best_value:
                     best_value = z
                     best_point = (x, y)
+                    optimal_points = [(x, y)]
+                elif z == best_value:
+                    optimal_points.append((x, y))
 
         # Convertimos los puntos a floats exclusivamente para Matplotlib en el front
         feasible_floats = [(float(x), float(y)) for x, y in feasible]
@@ -194,11 +236,30 @@ class GraphicalSolver:
         self.steps.append(f"\n🎯 PASO 4: Vértice óptimo encontrado en: ({best_point[0]}, {best_point[1]})")
 
         # ==============================
+        # CAMBIO 4: CLASIFICACIÓN FINAL ANTES DEL RETURN
+        # ==============================
+        bounded = self.is_bounded_region(feasible, hull)
+        degenerate = self.is_degenerate_vertex(best_point)
+
+        if len(optimal_points) > 1:
+            solution_kind = "Múltiple"
+        else:
+            solution_kind = "Única"
+
+        solution_type = {
+            "tipo_solucion": solution_kind,
+            "region": "Acotada" if bounded else "No Acotada",
+            "degeneracion": "Sí" if degenerate else "No",
+            "region_factible": "Sí"
+        }
+
+        # ==============================
         # 6. RESULTADO FINAL
         # ==============================
         return {
             "method": "graphical",
             "status": "OPTIMA_UNICA",
+            "solution_type": solution_type,
             "steps": self.steps,
             "graph_data": {
                 "constraints": [

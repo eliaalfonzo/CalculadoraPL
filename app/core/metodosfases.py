@@ -15,6 +15,9 @@ class TwoPhaseSolver:
 
         self.constraints = lp.constraints
 
+        # CAMBIO 1: Agregar una bandera de degeneración
+        self.degenerate = False
+
     def solve(self) -> Dict[str, Any]:
         steps = []
 
@@ -76,12 +79,14 @@ class TwoPhaseSolver:
                     basis.append(s_label)
                 else:
                     matrix[i][col_s] = Fraction(-1)
+                    basis.append(s_label)
                 current_s += 1
 
             if c.sign in (">=", "="):
                 r_label = f"r{current_r}"
                 col_a = headers.index(r_label)
                 matrix[i][col_a] = Fraction(1)
+                basis.pop() if c.sign == ">=" else None  # Ajuste si es necesario dependiendo de tu lógica de base anterior
                 basis.append(r_label)
                 art_indices.append(col_a)
                 current_r += 1
@@ -113,7 +118,16 @@ class TwoPhaseSolver:
             steps += s1
 
             if not ok or matrix[row_w][-1] != 0:
-                return {"status": "NO_FEASIBLE", "steps": steps}
+                solution_type = {
+                    "tipo_solucion": "Sin solución",
+                    "acotada": "Sí",
+                    "degeneracion": "Sí" if self.degenerate else "No"
+                }
+                return {
+                    "status": "SIN SOLUCIÓN",
+                    "solution_type": solution_type,
+                    "steps": steps
+                }
 
         # =========================================================
         # FASE II
@@ -141,19 +155,52 @@ class TwoPhaseSolver:
         steps += s2
 
         if not ok:
-            return {"status": "UNBOUNDED", "steps": steps}
+            # Retorno estructurado si el problema es no acotado
+            solution_type = {
+                "tipo_solucion": "Óptima no acotada",
+                "acotada": "No",
+                "degeneracion": "Sí" if self.degenerate else "No"
+            }
+            return {
+                "status": "NO_ACOTADA",
+                "solution_type": solution_type,
+                "steps": steps
+            }
 
         sol = {h: Fraction(0) for h in headers2[:-1]}
         for i in range(num_constraints):
             if basis[i] in sol:
                 sol[basis[i]] = matrix2[i][-1]
 
+        # Usar la propiedad self.degenerate directamente
+        degenerate = self.degenerate
+
         z = matrix2[row_z2][-1]
         if self.mode == "max":
             z = -z
 
+        multiple = False
+        for j in range(len(headers2) - 1):
+            if matrix2[row_z2][j] == 0 and headers2[j] not in basis:
+                multiple = True
+
+        if multiple:
+            status = "ÓPTIMA MÚLTIPLE"
+        elif degenerate:
+            status = "DEGENERADA"
+        else:
+            status = "ÓPTIMA ÚNICA"
+
+        # Construir el diccionario independiente para el óptimo
+        solution_type = {
+            "tipo_solucion": "Óptima múltiple" if multiple else "Óptima única",
+            "acotada": "Sí",
+            "degeneracion": "Sí" if degenerate else "No"
+        }
+
         return {
-            "status": "OPTIMAL",
+            "status": status,  # Se mantiene por compatibilidad
+            "solution_type": solution_type,
             "z": str(z),
             "variables": {k: str(v) for k, v in sol.items() if k.startswith("x")},
             "steps": steps
@@ -176,15 +223,24 @@ class TwoPhaseSolver:
 
             leaving = -1
             ratio_min = None
+            
+            # Cambiar la detección de degeneración dentro del pivot
+            ratios = []
             for i in range(num_constraints):
                 if matrix[i][entering] > 0:
                     r = matrix[i][-1] / matrix[i][entering]
+                    ratios.append((r, i))
                     if ratio_min is None or r < ratio_min:
                         ratio_min = r
                         leaving = i
 
             if leaving == -1:
                 return matrix, basis, steps, False
+
+            # Evaluar empate en la razón mínima antes del pivote
+            min_count = sum(1 for r, _ in ratios if r == ratio_min)
+            if min_count > 1:
+                self.degenerate = True
 
             old = basis[leaving]
             basis[leaving] = headers[entering]
@@ -200,11 +256,18 @@ class TwoPhaseSolver:
                         for j in range(total_cols)
                     ]
 
-            steps.append(self._save_step(
+            step = self._save_step(
                 f"Entra {headers[entering]} sale {old}",
-                matrix, basis, headers,
-                obj_row, num_constraints, phase, objective
-            ))
+                matrix,
+                basis,
+                headers,
+                obj_row,
+                num_constraints,
+                phase,
+                objective
+            )
+            steps.append(step)
+
         return matrix, basis, steps, True
 
     def _save_step(
@@ -221,24 +284,17 @@ class TwoPhaseSolver:
         """
         Construye una representación ordenada del tableau para la interfaz.
         """
-        # Se añade dinámicamente "R" o "Z" al principio de la lista de encabezados
         ordered_headers = [objective.upper()] + [h.upper() for h in headers]
 
-        # Función auxiliar modificada para inyectar la columna R/Z al inicio de cada fila
         def build_row(source_row, is_objective=False):
             row = []
-            # Columna R/Z
             row.append("1" if is_objective else "0")
-            # Resto de columnas numéricas
             row.extend(str(v) for v in source_row)
             return row
 
         output_matrix = []
-
-        # Fila de la función objetivo activa (Z o R) con flag en True
         output_matrix.append(build_row(matrix[obj_row], is_objective=True))
 
-        # Restricciones asociadas con flag en False
         for i in range(num_constraints):
             output_matrix.append(build_row(matrix[i], is_objective=False))
 
